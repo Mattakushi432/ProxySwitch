@@ -1,13 +1,43 @@
+import os
 import sys
-from tkinter import messagebox
+from pathlib import Path
 
 from .config import logger
-from .ui import App
+
+
+def _configure_tk_libraries() -> None:
+    if not getattr(sys, "frozen", False):
+        return
+
+    candidates = []
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        candidates.append(Path(meipass))
+
+    executable = Path(sys.executable).resolve()
+    if len(executable.parents) >= 2:
+        contents_dir = executable.parents[1]
+        candidates.append(contents_dir / "Resources")
+        candidates.append(contents_dir / "Frameworks")
+
+    for root in candidates:
+        tcl_dir = root / "tcl9.0"
+        tk_dir = root / "tk9.0"
+        if tcl_dir.is_dir() and tk_dir.is_dir():
+            os.environ["TCL_LIBRARY"] = str(tcl_dir)
+            os.environ["TK_LIBRARY"] = str(tk_dir)
+            logger.info("Configured Tcl/Tk paths from %s", root)
+            return
+
+    logger.warning("Could not locate bundled Tcl/Tk directories")
 
 
 def run() -> int:
+    _configure_tk_libraries()
+
     try:
         import customtkinter  # noqa: F401
+        from .ui import App
         logger.info("customtkinter imported successfully")
     except ImportError as e:
         logger.critical(f"customtkinter not found: {e}")
@@ -20,7 +50,12 @@ def run() -> int:
         return 0
     except Exception as e:
         logger.critical(f"Unexpected error: {e}", exc_info=True)
-        messagebox.showerror("Критическая ошибка", f"Неожиданная ошибка: {e}")
+        try:
+            from tkinter import messagebox
+
+            messagebox.showerror("Критическая ошибка", f"Неожиданная ошибка: {e}")
+        except Exception:
+            print(f"Критическая ошибка: {e}")
         return 1
 
 
