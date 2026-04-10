@@ -596,9 +596,9 @@ class App(ctk.CTk):
             self._routing_proxy = rp
             logger.info(f"Started routing proxy for profile {profile['name']}")
 
-            ok_upstream, upstream_lat = test_proxy(profile)
+            ok_upstream, upstream_lat, upstream_err = test_proxy(profile)
             if not ok_upstream:
-                raise RuntimeError("Верхний прокси недоступен или не принимает CONNECT.")
+                raise RuntimeError(f"Верхний прокси недоступен: {upstream_err}")
 
             direct = [r["pattern"] for r in profile.get("rules", []) if r.get("action") == "direct"]
 
@@ -692,7 +692,9 @@ class App(ctk.CTk):
         card.set_status(S_TESTING)
 
         def _run() -> None:
-            ok, lat = test_proxy(profile)
+            ok, lat, err = test_proxy(profile)
+            if not ok:
+                logger.warning(f"Manual proxy test failed for '{profile.get('name', 'unknown')}': {err}")
             self.after(0, lambda: card.set_status(S_OK if ok else S_FAIL, lat))
 
         threading.Thread(target=_run, daemon=True).start()

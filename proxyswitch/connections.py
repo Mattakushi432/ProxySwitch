@@ -126,6 +126,7 @@ class RoutingProxy:
 
             first = hdr_raw.split("\r\n")[0].split()
             if len(first) < 2:
+                logger.debug("Invalid client request line (too short)")
                 return
             method, target = first[0], first[1]
 
@@ -134,11 +135,13 @@ class RoutingProxy:
                     host, port = target.rsplit(":", 1)
                     port = int(port)
                 except (ValueError, IndexError):
+                    logger.debug(f"Invalid CONNECT target from client: {target!r}")
                     client.send(b"HTTP/1.1 400 Bad Request\r\n\r\n")
                     return
             else:
                 m = re.match(r"https?://([^/:]+)(?::(\d+))?", target)
                 if not m:
+                    logger.debug(f"Invalid HTTP target from client: {target!r}")
                     client.send(b"HTTP/1.1 400 Bad Request\r\n\r\n")
                     return
                 host = m.group(1)
@@ -147,6 +150,10 @@ class RoutingProxy:
             action = route_target(host, self.profile.get("rules", []))
             upstream = self._connect_direct(host, port) if action == "direct" else self._connect_upstream(host, port)
             if upstream is None:
+                logger.warning(
+                    f"Failed to open upstream connection for {method.upper()} {host}:{port} "
+                    f"(action={action}, profile={self.profile.get('name', 'unknown')})"
+                )
                 client.send(b"HTTP/1.1 502 Bad Gateway\r\n\r\n")
                 return
 
@@ -156,8 +163,8 @@ class RoutingProxy:
                 upstream.send(data)
 
             self._tunnel(client, upstream)
-        except Exception as e:
-            logger.debug(f"Error handling client connection: {e}")
+        except Exception:
+            logger.exception("Unexpected error while handling client connection")
         finally:
             try:
                 client.close()
@@ -197,16 +204,25 @@ class RoutingProxy:
             while b"\r\n\r\n" not in resp:
                 chunk = s.recv(4096)
                 if not chunk:
+                    logger.debug(f"Upstream {phost}:{pport} closed during CONNECT handshake for {host}:{port}")
                     s.close()
                     return None
                 resp += chunk
-            if b"200" not in resp.split(b"\r\n")[0]:
-                logger.debug(f"Upstream proxy rejected connection: {resp.split(b'\\r\\n')[0]}")
+            status_line = resp.split(b"\r\n")[0]
+            if b"200" not in status_line:
+                logger.warning(
+                    "Upstream proxy rejected CONNECT %s:%s via %s:%s, response=%s",
+                    host,
+                    port,
+                    phost,
+                    pport,
+                    status_line.decode("utf-8", errors="replace"),
+                )
                 s.close()
                 return None
             return s
         except Exception as e:
-            logger.debug(f"Upstream connection to {phost}:{pport} failed: {e}")
+            logger.warning(f"Upstream connection to {phost}:{pport} failed for target {host}:{port}: {e}")
             return None
 
     def _socks5_connect(
@@ -459,7 +475,7 @@ def _env_clear() -> Tuple[bool, str]:
         return False, str(e)
 
 
-def test_proxy(profile: Dict[str, Any], timeout: int = 6) -> Tuple[bool, float]:
+def test_proxy(profile: Dict[str, Any], timeout: int = 6) -> Tuple[bool, float, str]:
     ptype = profile.get("type", "HTTP")
     host = profile.get("host", "")
     port = int(profile.get("port", 8080))
@@ -473,7 +489,7 @@ def test_proxy(profile: Dict[str, Any], timeout: int = 6) -> Tuple[bool, float]:
                 import socks as pysocks
             except ImportError:
                 logger.error("PySocks not installed for SOCKS5 testing")
-                return False, 0.0
+                return False, 0.0, "PySocks не установлен"
             s = pysocks.socksocket()
             if user:
                 s.set_proxy(pysocks.SOCKS5, host, port, True, user, pwd)
@@ -492,13 +508,15 @@ def test_proxy(profile: Dict[str, Any], timeout: int = 6) -> Tuple[bool, float]:
             s.settimeout(timeout)
             resp = s.recv(256)
             if b"200" not in resp:
-                logger.warning(f"Proxy test failed: no 200 response from {host}:{port}")
-                return False, 0.0
+                status_line = resp.split(b"\r\n", 1)[0].decode("utf-8", errors="replace")
+                reason = f"прокси вернул неуспешный ответ: {status_line}"
+                logger.warning(f"Proxy test failed for {host}:{port}: {reason}")
+                return False, 0.0, reason
         logger.info(f"Proxy test successful for {host}:{port}")
-        return True, round((time.time() - start) * 1000, 1)
+        return True, round((time.time() - start) * 1000, 1), ""
     except Exception as e:
-        logger.warning(f"Proxy test failed for {host}:{port}: {e}")
-        return False, 0.0
+        logger.warning(f"Proxy test failed for {host}:{port}: {type(e).__name__}: {e}")
+        return False, 0.0, f"{type(e).__name__}: {e}"
     finally:
         if s:
             try:
