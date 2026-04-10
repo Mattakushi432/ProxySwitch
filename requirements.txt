@@ -1,0 +1,12 @@
+# ProxySwitch v2 - Dependencies
+
+# GUI Framework
+customtkinter>=5.0.0
+
+# Network/Proxy Support
+PySocks>=1.7.1
+
+# Optional (Recommended for future):
+# keyring>=23.0.0          # For secure password storage
+# requests>=2.28.0         # For HTTP requests
+# pydantic>=1.9.0          # For data validation
