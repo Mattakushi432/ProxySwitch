@@ -11,6 +11,7 @@ from .config import (
     APP_NAME,
     APP_VERSION,
     C,
+    DATA_FILE,
     LOCAL_PROXY_PORT,
     PROXY_TYPES,
     S_DOT,
@@ -677,14 +678,16 @@ class App(ctk.CTk):
             messagebox.showerror("Ошибка", f"Ошибка отключения прокси: {e}")
 
     def _open_logs(self) -> None:
-        log_path = self.store.path.parent / "debug.log"
+        log_path = DATA_FILE.parent / "debug.log"
         try:
             log_path.parent.mkdir(parents=True, exist_ok=True)
             if not log_path.exists():
                 log_path.touch()
 
             if platform.system() == "Darwin":
-                subprocess.Popen(["open", str(log_path)])
+                proc = subprocess.run(["open", str(log_path)], check=False, capture_output=True, text=True)
+                if proc.returncode != 0:
+                    raise RuntimeError((proc.stderr or proc.stdout).strip() or f"open returned {proc.returncode}")
             elif platform.system() == "Windows":
                 subprocess.Popen(["cmd", "/c", "start", "", str(log_path)], shell=False)
             else:
