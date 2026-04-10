@@ -1,3 +1,5 @@
+import platform
+import subprocess
 import threading
 from typing import Any, Callable, Dict, List, Optional
 
@@ -502,6 +504,18 @@ class App(ctk.CTk):
 
         ctk.CTkButton(
             btns,
+            text="📝 Логи",
+            fg_color=C["card_hover"],
+            hover_color="#2d333b",
+            text_color=C["text_muted"],
+            font=("JetBrains Mono", 12),
+            height=34,
+            corner_radius=8,
+            command=self._open_logs,
+        ).pack(side="right", padx=(0, 6))
+
+        ctk.CTkButton(
+            btns,
             text="⊘ Отключить",
             fg_color=C["red_dim"],
             hover_color="#5a2a2a",
@@ -661,6 +675,24 @@ class App(ctk.CTk):
         except Exception as e:
             logger.exception("Error disabling proxy")
             messagebox.showerror("Ошибка", f"Ошибка отключения прокси: {e}")
+
+    def _open_logs(self) -> None:
+        log_path = self.store.path.parent / "debug.log"
+        try:
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            if not log_path.exists():
+                log_path.touch()
+
+            if platform.system() == "Darwin":
+                subprocess.Popen(["open", str(log_path)])
+            elif platform.system() == "Windows":
+                subprocess.Popen(["cmd", "/c", "start", "", str(log_path)], shell=False)
+            else:
+                subprocess.Popen(["xdg-open", str(log_path)])
+            logger.info(f"Opened log file: {log_path}")
+        except Exception as e:
+            logger.exception("Error opening log file")
+            messagebox.showerror("Ошибка", f"Не удалось открыть лог: {e}")
 
     def _open_add(self) -> None:
         def save(data: Dict[str, Any]) -> None:
